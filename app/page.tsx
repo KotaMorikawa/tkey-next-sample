@@ -83,9 +83,6 @@ function App() {
       const loginRes = await signInWithGoogle();
       // get the id token from firebase
       const idToken = await loginRes.user.getIdToken(true);
-
-      uiConsole("Raw idToken:", idToken?.substring(0, 30) + "...");
-
       const userId = loginRes.user.uid;
 
       if (!userId) {
@@ -105,19 +102,13 @@ function App() {
         idToken,
       };
 
-      uiConsole("Connect Params:", connectParams);
-
       await (tKey.serviceProvider as SfaServiceProvider).connect(connectParams);
-
-      console.log("connected to SFA Service Provider");
 
       await tKey.initialize();
 
       setTKeyInitialised(true);
 
       var { requiredShares } = tKey.getKeyDetails();
-
-      console.log("recoveryShare: ", recoveryShare);
 
       if (requiredShares > 0) {
         uiConsole(
@@ -140,7 +131,7 @@ function App() {
       await ethereumPrivateKeyProvider.setupProvider(privateKey);
       setProvider(ethereumPrivateKeyProvider);
       setLoggedIn(true);
-      setDeviceShare();
+      // setDeviceShareの呼び出しを削除
     } catch (e) {
       uiConsole(e);
     }
@@ -149,9 +140,14 @@ function App() {
   const inputRecoveryShare = async (share: string) => {
     try {
       await tKey.inputShare(share);
-      await reconstructKey();
-      uiConsole("Recovery Share Input Successfully");
-      return;
+      // 必要なshareが揃ったか確認し、揃っていればreconstructKey
+      const { requiredShares } = tKey.getKeyDetails();
+      if (requiredShares === 0) {
+        await reconstructKey();
+        uiConsole("Recovery Share Input Successfully");
+      } else {
+        uiConsole("More shares are required.", requiredShares);
+      }
     } catch (error) {
       uiConsole("Input Recovery Share Error:", error);
     }
@@ -218,7 +214,7 @@ function App() {
     }
   };
 
-  const MnemonicToShareHex = async (mnemonic: string) => {
+  const recoverFromMnemonic = async (mnemonic: string) => {
     if (!tKey) {
       uiConsole("tKey not initialized yet");
       return;
@@ -227,10 +223,22 @@ function App() {
       const share = await (
         tKey.modules.shareSerialization as ShareSerializationModule
       ).deserialize(mnemonic, "mnemonic");
-      setRecoveryShare(share.toString("hex"));
+
+      // ニーモニックから変換したシェアを直接inputShareに渡す
+      await tKey.inputShare(share.toString("hex"));
+
+      // シェアが揃ったか確認し、揃っていればreconstructKey
+      const { requiredShares } = tKey.getKeyDetails();
+      if (requiredShares === 0) {
+        await reconstructKey();
+        uiConsole("Recovery from Mnemonic Successful");
+      } else {
+        uiConsole("More shares are required.", requiredShares);
+      }
+
       return share;
     } catch (error) {
-      uiConsole(error);
+      uiConsole("Mnemonic Recovery Error:", error);
     }
   };
 
@@ -379,7 +387,7 @@ function App() {
         <button onClick={() => getDeviceShare()} className="card">
           Get Device Share
         </button>
-        <label>Backup/ Device Share:</label>
+        <label>Device Share:</label>
         <input
           value={recoveryShare}
           onChange={(e) => setRecoveryShare(e.target.value)}
@@ -388,7 +396,7 @@ function App() {
           onClick={() => inputRecoveryShare(recoveryShare)}
           className="card"
         >
-          Input Recovery Share
+          Input Device Share
         </button>
         <button onClick={criticalResetAccount} className="card">
           [CRITICAL] Reset Account
@@ -399,10 +407,10 @@ function App() {
           onChange={(e) => setMnemonicShare(e.target.value)}
         ></input>
         <button
-          onClick={() => MnemonicToShareHex(mnemonicShare)}
+          onClick={() => recoverFromMnemonic(mnemonicShare)}
           className="card"
         >
-          Get Recovery Share using Mnemonic
+          Recover using Mnemonic
         </button>
       </div>
     </>
